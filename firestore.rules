@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: check if the requesting user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper: get the user's role from the users collection
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Helper: check if user is admin
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'admin';
+    }
+
+    // Users collection — users can read their own doc; only admins can change roles
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      // Users can create their own doc on registration (role must be 'employee')
+      allow create: if isAuthenticated()
+                    && request.auth.uid == userId
+                    && request.resource.data.role == 'employee';
+      // Users can update their own non-role fields; admins can update anything
+      allow update: if isAuthenticated()
+                    && (
+                      // Admin can update any user doc
+                      isAdmin()
+                      ||
+                      // Users can update their own doc but cannot change their role
+                      (request.auth.uid == userId
+                       && request.resource.data.role == resource.data.role)
+                    );
+      allow delete: if isAdmin();
+    }
+
+    // Products — any authenticated user can read; only admins can write
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Orders — any authenticated user can read; only admins can write
+    match /orders/{orderId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Customers — any authenticated user can read; only admins can write
+    match /customers/{customerId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Suppliers — any authenticated user can read; only admins can write
+    match /suppliers/{supplierId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Stock Entries (audit log) — any authenticated can read; only admins can write
+    match /stockEntries/{entryId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+      allow update, delete: if false; // Audit logs are immutable
+    }
+
+    // Deny everything else by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
